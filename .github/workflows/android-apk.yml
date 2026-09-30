@@ -76,7 +76,7 @@ jobs:
 
           grep -E "Alias name:|Entry type:|Valid from:" /tmp/keystore-check.txt
 
-      - name: Configure release signing
+      - name: Create keystore properties
         env:
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
@@ -84,14 +84,34 @@ jobs:
           test -n "$STORE_PASSWORD"
           test -n "$KEY_PASSWORD"
 
+          cat > android/keystore.properties <<EOF
+          storePassword=$STORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=shreekart
+          storeFile=app/release-keystore.jks
+          EOF
+
+          chmod 600 android/keystore.properties
+
+      - name: Configure Android release signing
+        run: |
           cat > android/app/release-signing.gradle <<'GRADLE'
+          def keystorePropertiesFile = rootProject.file("keystore.properties")
+          def keystoreProperties = new Properties()
+
+          if (!keystorePropertiesFile.exists()) {
+              throw new GradleException("keystore.properties not found")
+          }
+
+          keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+
           android {
               signingConfigs {
                   shreekartRelease {
-                      storeFile file("release-keystore.jks")
-                      storePassword System.getenv("STORE_PASSWORD")
-                      keyAlias "shreekart"
-                      keyPassword System.getenv("KEY_PASSWORD")
+                      storeFile file(keystoreProperties["storeFile"])
+                      storePassword keystoreProperties["storePassword"]
+                      keyAlias keystoreProperties["keyAlias"]
+                      keyPassword keystoreProperties["keyPassword"]
                   }
               }
 
@@ -103,7 +123,15 @@ jobs:
           }
           GRADLE
 
-          printf '\napply from: "release-signing.gradle"\n' >> android/app/build.gradle
+          printf '\napply from: "../release-signing.gradle"\n' >> android/app/build.gradle
+
+      - name: Verify signing setup
+        run: |
+          test -f android/keystore.properties
+          test -f android/app/release-signing.gradle
+          grep "keyAlias=shreekart" android/keystore.properties
+          grep "storeFile=app/release-keystore.jks" android/keystore.properties
+          echo "Signing configuration is ready."
 
       - name: Build signed release APK
         working-directory: android
