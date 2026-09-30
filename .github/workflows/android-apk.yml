@@ -33,7 +33,7 @@ jobs:
 
       - name: Install Android SDK packages
         run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          yes | sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Prepare web app
         run: |
@@ -60,56 +60,80 @@ jobs:
           echo "$KEYSTORE_B64" | base64 --decode > android/app/release-keystore.jks
           test -s android/app/release-keystore.jks
 
+      - name: Verify release keystore
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          keytool -list \
+            -keystore android/app/release-keystore.jks \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            -v > /tmp/keystore-check.txt
+
+          grep -E "Alias name:|Entry type:|Valid from:" /tmp/keystore-check.txt
+
       - name: Configure release signing
         env:
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        working-directory: android/app
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          p = Path("build.gradle")
+          p = Path("android/app/build.gradle")
           s = p.read_text()
 
-          block = """    signingConfigs {
-              release {
-                  storeFile file("release-keystore.jks")
-                  storePassword System.getenv("STORE_PASSWORD")
-                  keyAlias System.getenv("KEY_ALIAS")
-                  keyPassword System.getenv("KEY_PASSWORD")
+          signing_block = '''
+              signingConfigs {
+                  release {
+                      storeFile file("release-keystore.jks")
+                      storePassword System.getenv("STORE_PASSWORD")
+                      keyAlias System.getenv("KEY_ALIAS")
+                      keyPassword System.getenv("KEY_PASSWORD")
+                  }
               }
-          }
-
-          """
+          '''
 
           if "signingConfigs {" not in s:
-              s = s.replace("android {\n", "android {\n" + block, 1)
+              s = s.replace(
+                  "android {",
+                  "android {" + signing_block,
+                  1
+              )
 
           if "signingConfig signingConfigs.release" not in s:
               s = s.replace(
-                  "        release {\n",
-                  "        release {\n            signingConfig signingConfigs.release\n",
+                  "buildTypes {",
+                  """buildTypes {
+                      release {
+                          signingConfig signingConfigs.release
+                      }""",
                   1
               )
 
           p.write_text(s)
           PY
 
-      - name: Build signed release AAB
-        working-directory: android
-        run: ./gradlew bundleRelease
+      - name: Show signing configuration
+        run: |
+          grep -n -A12 -B2 "signingConfigs" android/app/build.gradle || true
+          grep -n -A8 -B2 "signingConfig" android/app/build.gradle || true
 
       - name: Build signed release APK
         working-directory: android
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Build signed release AAB
+        working-directory: android
+        run: ./gradlew bundleRelease --stacktrace
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ShreeKart-release
           path: |
-            android/app/build/outputs/bundle/release/app-release.aab
             android/app/build/outputs/apk/release/app-release.apk
+            android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
