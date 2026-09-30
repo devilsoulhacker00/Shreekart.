@@ -12,36 +12,47 @@ jobs:
 
     steps:
 
+      # 1. Checkout source code
       - name: Checkout
         uses: actions/checkout@v7
 
+      # 2. Setup Java 21
       - name: Setup Java
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
+      # 3. Setup Node.js 24
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: '24'
           package-manager-cache: false
 
+      # 4. Setup Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
 
+      # 5. Install Android SDK packages
       - name: Install Android SDK packages
         run: |
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Check Android SDK
+      # 6. Check Android environment
+      - name: Check Android Environment
         run: |
+          java -version
+          node --version
+          npm --version
           adb --version
           sdkmanager --version
+          echo "JAVA_HOME=$JAVA_HOME"
           echo "ANDROID_HOME=$ANDROID_HOME"
 
+      # 7. Prepare web app
       - name: Prepare web app
         run: |
           mkdir -p www
@@ -51,19 +62,24 @@ jobs:
           cp config.js www/
           cp manifest.json www/
 
+      # 8. Install npm dependencies
       - name: Install dependencies
         run: npm install
 
+      # 9. Add Capacitor Android platform
       - name: Add Android platform
         run: npx cap add android
 
+      # 10. Sync Capacitor
       - name: Sync Capacitor
         run: npx cap sync android
 
+      # 11. Build Debug APK
       - name: Build APK
         working-directory: android
         run: ./gradlew assembleDebug
 
+      # 12. Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
