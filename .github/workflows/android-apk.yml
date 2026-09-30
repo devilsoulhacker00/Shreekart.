@@ -1,4 +1,4 @@
-name: Build ShreeKart APK
+name: Build ShreeKart Release
 
 on:
   workflow_dispatch:
@@ -11,48 +11,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      # 1. Checkout source code
       - name: Checkout
         uses: actions/checkout@v7
 
-      # 2. Setup Java 21
       - name: Setup Java
         uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '21'
 
-      # 3. Setup Node.js 24
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: '24'
           package-manager-cache: false
 
-      # 4. Setup Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools'
 
-      # 5. Install Android SDK packages
       - name: Install Android SDK packages
         run: |
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-      # 6. Check Android environment
-      - name: Check Android Environment
-        run: |
-          java -version
-          node --version
-          npm --version
-          adb --version
-          sdkmanager --version
-          echo "JAVA_HOME=$JAVA_HOME"
-          echo "ANDROID_HOME=$ANDROID_HOME"
-
-      # 7. Prepare web app
       - name: Prepare web app
         run: |
           mkdir -p www
@@ -62,27 +44,72 @@ jobs:
           cp config.js www/
           cp manifest.json www/
 
-      # 8. Install npm dependencies
       - name: Install dependencies
         run: npm install
 
-      # 9. Add Capacitor Android platform
       - name: Add Android platform
         run: npx cap add android
 
-      # 10. Sync Capacitor
       - name: Sync Capacitor
         run: npx cap sync android
 
-      # 11. Build Debug APK
-      - name: Build APK
-        working-directory: android
-        run: ./gradlew assembleDebug
+      - name: Decode release keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 --decode > android/app/release-keystore.jks
+          test -s android/app/release-keystore.jks
 
-      # 12. Upload APK
-      - name: Upload APK
+      - name: Configure release signing
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        working-directory: android/app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("build.gradle")
+          s = p.read_text()
+
+          block = """    signingConfigs {
+              release {
+                  storeFile file("release-keystore.jks")
+                  storePassword System.getenv("STORE_PASSWORD")
+                  keyAlias System.getenv("KEY_ALIAS")
+                  keyPassword System.getenv("KEY_PASSWORD")
+              }
+          }
+
+          """
+
+          if "signingConfigs {" not in s:
+              s = s.replace("android {\n", "android {\n" + block, 1)
+
+          if "signingConfig signingConfigs.release" not in s:
+              s = s.replace(
+                  "        release {\n",
+                  "        release {\n            signingConfig signingConfigs.release\n",
+                  1
+              )
+
+          p.write_text(s)
+          PY
+
+      - name: Build signed release AAB
+        working-directory: android
+        run: ./gradlew bundleRelease
+
+      - name: Build signed release APK
+        working-directory: android
+        run: ./gradlew assembleRelease
+
+      - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ShreeKart-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: ShreeKart-release
+          path: |
+            android/app/build/outputs/bundle/release/app-release.aab
+            android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
