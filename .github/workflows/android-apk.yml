@@ -3,59 +3,77 @@ name: Build ShreeKart APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+
+      # 1. Checkout source code
       - name: Checkout
         uses: actions/checkout@v7
 
+      # 2. Setup Java 17
       - name: Setup Java
         uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
 
+      # 3. Setup Node.js 24
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: '24'
           package-manager-cache: false
-          
-- name: Setup Android SDK
-  run: |
-    yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-- name: Install Android SDK
-  run: |
-    ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager \
-      "platform-tools" \
-      "platforms;android-35" \
-      "build-tools;35.0.0"
+      # 4. Setup Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
+      # 5. Check installed Android tools
+      - name: Check Android SDK
+        run: |
+          adb --version
+          sdkmanager --version
+          echo "ANDROID_HOME=$ANDROID_HOME"
+
+      # 6. Prepare web app
       - name: Prepare web app
         run: |
           mkdir -p www
-          cp index.html app.js style.css config.js manifest.json www/
+          cp index.html www/
+          cp app.js www/
+          cp style.css www/
+          cp config.js www/
+          cp manifest.json www/
 
+      # 7. Install npm dependencies
       - name: Install dependencies
         run: npm install
 
+      # 8. Add Capacitor Android platform
       - name: Add Android platform
         run: npx cap add android
 
+      # 9. Sync Capacitor
       - name: Sync Capacitor
         run: npx cap sync android
 
+      # 10. Build Debug APK
       - name: Build APK
         working-directory: android
         run: ./gradlew assembleDebug
 
+      # 11. Upload APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ShreeKart-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
