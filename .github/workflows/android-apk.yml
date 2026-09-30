@@ -86,13 +86,15 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           p = Path("android/app/build.gradle")
           s = p.read_text()
 
-          signing_block = """
+          # Add a separate release signing configuration.
+          signing_config = """
               signingConfigs {
-                  release {
+                  shreekartRelease {
                       storeFile file("release-keystore.jks")
                       storePassword System.getenv("STORE_PASSWORD")
                       keyAlias "shreekart"
@@ -101,23 +103,36 @@ jobs:
               }
           """
 
-          if "keyAlias \"shreekart\"" not in s:
+          if "shreekartRelease" not in s:
               s = s.replace(
                   "    buildTypes {",
-                  signing_block + "\n    buildTypes {",
+                  signing_config + "\n    buildTypes {",
                   1
               )
 
-          if "signingConfig signingConfigs.release" not in s:
-              s = s.replace(
-                  "        release {",
-                  """        release {
-            signingConfig signingConfigs.release""",
-                  1
+          # Attach the signing config ONLY to buildTypes.release.
+          pattern = r"(buildTypes\\s*\\{\\s*release\\s*\\{)"
+
+          if "signingConfig signingConfigs.shreekartRelease" not in s:
+              s, count = re.subn(
+                  pattern,
+                  r'\1\n            signingConfig signingConfigs.shreekartRelease',
+                  s,
+                  count=1
               )
+
+              if count != 1:
+                  raise SystemExit(
+                      "Could not locate buildTypes { release { } in build.gradle"
+                  )
 
           p.write_text(s)
           PY
+
+      - name: Check Gradle signing configuration
+        run: |
+          grep -n -A12 -B2 "shreekartRelease" android/app/build.gradle
+          grep -n -A8 -B2 "signingConfig" android/app/build.gradle
 
       - name: Build signed release APK
         working-directory: android
