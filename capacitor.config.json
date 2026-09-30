@@ -1,0 +1,6 @@
+{
+  "appId": "com.shreekart.app",
+  "appName": "ShreeKart",
+  "webDir": "www",
+  "server": {"androidScheme": "https"}
+}

@@ -1,0 +1,11 @@
+{
+  "name": "shreekart",
+  "version": "5.0.0",
+  "private": true,
+  "scripts": {"android": "npx cap open android"},
+  "dependencies": {
+    "@capacitor/core": "^7.4.3",
+    "@capacitor/android": "^7.4.3"
+  },
+  "devDependencies": {"@capacitor/cli": "^7.4.3"}
+}
