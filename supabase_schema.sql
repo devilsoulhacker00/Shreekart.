@@ -26,10 +26,23 @@ drop policy if exists "users update reviews" on public.reviews;create policy "us
 drop policy if exists "users delete reviews" on public.reviews;create policy "users delete reviews" on public.reviews for delete using(auth.uid()=user_id);
 
 create or replace function public.is_staff() returns boolean language sql stable security definer set search_path=public as $$ select exists(select 1 from profiles where id=auth.uid() and role in ('admin','seller')); $$;
-drop policy if exists "staff manage products" on public.products;create policy "staff manage products" on public.products for all using(public.is_staff()) with check(public.is_staff());
-drop policy if exists "staff update orders" on public.orders;create policy "staff update orders" on public.orders for update using(public.is_staff()) with check(public.is_staff());
-drop policy if exists "staff read all orders" on public.orders;create policy "staff read all orders" on public.orders for select using(auth.uid()=user_id or public.is_staff());
-drop policy if exists "staff read all order items" on public.order_items;create policy "staff read all order items" on public.order_items for select using(exists(select 1 from public.orders o where o.id=order_id and (o.user_id=auth.uid() or public.is_staff())));
+create or replace function public.is_admin() returns boolean language sql stable security definer set search_path=public as $$ select exists(select 1 from profiles where id=auth.uid() and role='admin'); $$;
+create or replace function public.is_seller() returns boolean language sql stable security definer set search_path=public as $$ select exists(select 1 from profiles where id=auth.uid() and role='seller'); $$;
+
+drop policy if exists "staff manage products" on public.products;
+drop policy if exists "admin manage products" on public.products;create policy "admin manage products" on public.products for all using(public.is_admin()) with check(public.is_admin());
+drop policy if exists "seller manage own products" on public.products;create policy "seller manage own products" on public.products for all using(public.is_seller() and seller_id=auth.uid()) with check(public.is_seller() and seller_id=auth.uid());
+
+drop policy if exists "staff update orders" on public.orders;
+drop policy if exists "staff read all orders" on public.orders;
+drop policy if exists "admin read all orders" on public.orders;create policy "admin read all orders" on public.orders for select using(public.is_admin() or auth.uid()=user_id);
+drop policy if exists "seller read related orders" on public.orders;create policy "seller read related orders" on public.orders for select using(public.is_seller() and exists(select 1 from public.order_items oi join public.products p on p.id=oi.product_id where oi.order_id=orders.id and p.seller_id=auth.uid()));
+drop policy if exists "admin update orders" on public.orders;create policy "admin update orders" on public.orders for update using(public.is_admin()) with check(public.is_admin());
+drop policy if exists "seller update related orders" on public.orders;create policy "seller update related orders" on public.orders for update using(public.is_seller() and exists(select 1 from public.order_items oi join public.products p on p.id=oi.product_id where oi.order_id=orders.id and p.seller_id=auth.uid())) with check(public.is_seller());
+
+drop policy if exists "staff read all order items" on public.order_items;
+drop policy if exists "admin read all order items" on public.order_items;create policy "admin read all order items" on public.order_items for select using(public.is_admin() or exists(select 1 from public.orders o where o.id=order_id and o.user_id=auth.uid()));
+drop policy if exists "seller read own order items" on public.order_items;create policy "seller read own order items" on public.order_items for select using(public.is_seller() and exists(select 1 from public.products p where p.id=product_id and p.seller_id=auth.uid()));
 
 create or replace function public.place_order(p_items jsonb,p_address jsonb,p_payment_method text default 'cod') returns uuid language plpgsql security definer set search_path=public as $$
 declare v_order_id uuid;v_total numeric(12,2):=0;item jsonb;v_product products%rowtype;v_qty integer;v_price numeric(12,2);
