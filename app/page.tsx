@@ -11,8 +11,12 @@ const sb=url&&key?createClient(url,key):null;
 
 async function isAdmin(){
   if(!sb)return false;
-  const {data,error}=await sb.rpc("is_admin");
-  return !error&&data===true;
+  const {data:rpcData,error:rpcError}=await sb.rpc("is_admin");
+  if(!rpcError&&rpcData===true)return true;
+  const {data:userData}=await sb.auth.getUser();
+  if(!userData.user)return false;
+  const {data:profile}=await sb.from("profiles").select("role").eq("id",userData.user.id).maybeSingle();
+  return profile?.role==="admin";
 }
 
 export default function Home(){
