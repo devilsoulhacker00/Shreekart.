@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-type Product = { id:string; name:string; description?:string|null; category?:string|null; price:number; stock:number; image_url?:string|null; active?:boolean };
+type Product = { id:string; name:string; description?:string|null; category?:string|null; price:number; stock:number; image_url?:string|null; is_active?:boolean };
 
 const url=process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key=process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -76,7 +76,7 @@ export default function Home(){
   async function saveProduct(){
     if(!sb||!admin||!form.name||!form.price){setMsg("Product name and price are required.");return;}
     setBusy(true);
-    const payload={name:form.name,category:form.category||"General",price:Number(form.price),stock:Number(form.stock||0),image_url:form.image_url||null,description:form.description||null,...(editingId?{}:{active:true})};
+    const payload={name:form.name,category:form.category||"General",price:Number(form.price),stock:Number(form.stock||0),image_url:form.image_url||null,description:form.description||null,...(editingId?{}:{is_active:true})};
     const r=editingId?await sb.from("products").update(payload).eq("id",editingId):await sb.from("products").insert(payload);
     setBusy(false);
     if(r.error)setMsg(r.error.message);else{setMsg(editingId?"Product updated successfully.":"Product added successfully.");resetForm();await refresh();}
@@ -95,7 +95,7 @@ export default function Home(){
 
   async function toggleProduct(p:Product){
     if(!sb||!admin)return;
-    const r=await sb.from("products").update({active:p.active===false}).eq("id",p.id);
+    const r=await sb.from("products").update({is_active:p.is_active===false}).eq("id",p.id);
     if(r.error)setMsg(r.error.message);else await refresh();
   }
 
@@ -120,7 +120,7 @@ export default function Home(){
 
     {view==="shop"&&<section className="panel">
       <h1>Shop More, Live Better.</h1><p>ShreeKart product catalog.</p>
-      <div className="grid">{products.filter(p=>p.active!==false).map(p=><article className="card" key={p.id}>
+      <div className="grid">{products.filter(p=>p.is_active!==false).map(p=><article className="card" key={p.id}>
         <div className="photo">{p.image_url?<img src={p.image_url} alt={p.name}/>:<span>🛍️</span>}</div>
         <div className="body"><small>{p.category||"General"}</small><h3>{p.name}</h3><strong>₹{Number(p.price).toLocaleString("en-IN")}</strong><p>{p.stock>0?p.stock+" in stock":"Out of stock"}</p><button disabled={!p.stock} onClick={()=>addToCart(p)}>Add to Cart</button></div>
       </article>)}</div>
@@ -147,8 +147,8 @@ export default function Home(){
           <div className="actions"><button className="primary" disabled={busy} onClick={saveProduct}>{editingId?"Update Product":"Add Product"}</button>{editingId&&<button onClick={resetForm}>Cancel Edit</button>}</div>
         </div>
         <div className="panel"><h3>Inventory</h3>{products.map(p=><div className="adminRow" key={p.id}>
-          <div><b>{p.name}</b><small>{p.category||"General"} · ₹{Number(p.price).toLocaleString("en-IN")} · {p.active===false?"Hidden":"Live"}</small></div>
-          <div className="actions"><button onClick={()=>editProduct(p)}>Edit</button><button onClick={()=>toggleProduct(p)}>{p.active===false?"Enable":"Hide"}</button><button onClick={()=>deleteProduct(p.id)}>Delete</button></div>
+          <div><b>{p.name}</b><small>{p.category||"General"} · ₹{Number(p.price).toLocaleString("en-IN")} · {p.is_active===false?"Hidden":"Live"}</small></div>
+          <div className="actions"><button onClick={()=>editProduct(p)}>Edit</button><button onClick={()=>toggleProduct(p)}>{p.is_active===false?"Enable":"Hide"}</button><button onClick={()=>deleteProduct(p.id)}>Delete</button></div>
         </div>)}</div>
       </div>
     </section>}
