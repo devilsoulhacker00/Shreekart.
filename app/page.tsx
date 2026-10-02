@@ -88,9 +88,9 @@ export default function Home(){
   function resetForm(){setEditingId(null);setForm({name:"",category:"",price:"",stock:"",image_url:"",description:""});}
 
   async function deleteProduct(id:string){
-    if(!sb||!admin||!confirm("Delete this product? This cannot be undone."))return;
-    setBusy(true);const r=await sb.from("products").delete().eq("id",id);setBusy(false);
-    if(r.error)setMsg(r.error.message);else{setMsg("Product deleted.");if(editingId===id)resetForm();await refresh();}
+    if(!sb||!admin||!confirm("Remove this product from the shop? Existing orders will be preserved."))return;
+    setBusy(true);const r=await sb.from("products").update({is_active:false}).eq("id",id);setBusy(false);
+    if(r.error)setMsg(r.error.message);else{setMsg("Product removed from shop.");if(editingId===id)resetForm();await refresh();}
   }
 
   async function toggleProduct(p:Product){
