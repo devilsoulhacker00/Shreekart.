@@ -8,7 +8,7 @@ const url=process.env.NEXT_PUBLIC_SUPABASE_URL,key=process.env.NEXT_PUBLIC_SUPAB
 const sb=url&&key?createClient(url,key):null;
 export default function Home(){
  const [products,setProducts]=useState<Product[]>([]),[q,setQ]=useState(""),[cat,setCat]=useState("All"),[cart,setCart]=useState<Record<string,number>>({});
- const [view,setView]=useState<"shop"|"cart"|"account"|"orders"|"addresses"|"wishlist">("shop"),[loading,setLoading]=useState(true),[error,setError]=useState(""),[msg,setMsg]=useState("");
+ const [view,setView]=useState<"shop"|"cart"|"account"|"orders"|"addresses"|"wishlist"|"admin">("shop"),[loading,setLoading]=useState(true),[error,setError]=useState(""),[msg,setMsg]=useState("");
  const [user,setUser]=useState<any>(null),[busy,setBusy]=useState(false),[email,setEmail]=useState(""),[password,setPassword]=useState("");
  const [orders,setOrders]=useState<Order[]>([]),[isAdmin,setIsAdmin]=useState(false),[addresses,setAddresses]=useState<Address[]>([]),[wishlist,setWishlist]=useState<string[]>([]);
  const [address,setAddress]=useState({label:"Home",full_address:"",city:"",state:"",pincode:""});
