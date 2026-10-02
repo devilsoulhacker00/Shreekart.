@@ -1,3 +1,1 @@
-# ShreeKart write access test
-
-This file verifies repository write access.
+# GitHub write access verified
