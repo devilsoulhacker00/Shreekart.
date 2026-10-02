@@ -1,64 +1,154 @@
 "use client";
-import {useEffect,useMemo,useState} from "react";
-import {createClient} from "@supabase/supabase-js";
-type Product={id:string;name:string;category?:string;category_id?:string|null;price:number;stock:number;image_url?:string|null;rating_avg?:number|null;is_active?:boolean};
-type Order={id:string;status:string;payment_method:string;payment_status:string;total:number;shipping_address:any;created_at:string};
-type Address={id:string;label:string;full_address:string;city?:string;state?:string;pincode?:string;is_default?:boolean};
-const url=process.env.NEXT_PUBLIC_SUPABASE_URL,key=process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+import { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+type Product = { id:string; name:string; description?:string|null; category?:string|null; price:number; stock:number; image_url?:string|null; active?:boolean };
+
+const url=process.env.NEXT_PUBLIC_SUPABASE_URL;
+const key=process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 const sb=url&&key?createClient(url,key):null;
 
-async function getMyRole(){
-  if(!sb)return null;
-  const {data,error}=await sb.rpc("get_my_role");
-  if(error)return null;
-  return data as string|null;
-}
-export default function Home(){
- const [products,setProducts]=useState<Product[]>([]),[q,setQ]=useState(""),[cat,setCat]=useState("All"),[cart,setCart]=useState<Record<string,number>>({});
- const [view,setView]=useState<"shop"|"cart"|"account"|"orders"|"addresses"|"wishlist"|"admin">("shop"),[loading,setLoading]=useState(true),[error,setError]=useState(""),[msg,setMsg]=useState("");
- const [user,setUser]=useState<any>(null),[busy,setBusy]=useState(false),[email,setEmail]=useState(""),[password,setPassword]=useState("");
- const [orders,setOrders]=useState<Order[]>([]),[isAdmin,setIsAdmin]=useState(false),[addresses,setAddresses]=useState<Address[]>([]),[wishlist,setWishlist]=useState<string[]>([]);
- const [address,setAddress]=useState({label:"Home",full_address:"",city:"",state:"",pincode:""});
- useEffect(()=>{if(!sb){setError("Supabase environment variables are missing.");setLoading(false);return}
-   sb.auth.getUser().then(async({data})=>{setUser(data.user);if(data.user){loadPrivate(data.user.id);setIsAdmin((await getMyRole())==="admin");}});
-   const {data:authListener}=sb.auth.onAuthStateChange(async(_event,session)=>{const nextUser=session?.user??null;setUser(nextUser);if(nextUser){loadPrivate(nextUser.id);setIsAdmin((await getMyRole())==="admin");}else{setIsAdmin(false);setOrders([]);setAddresses([]);setWishlist([]);}});
-   sb.from("products").select("*,categories(name)").order("created_at",{ascending:false}).then(({data,error})=>{if(error)setError(error.message);else setProducts((data||[]).map((p:any)=>({...p,category:p.categories?.name||"General"})));setLoading(false)});
- return ()=>authListener.subscription.unsubscribe();
- },[]);
- async function loadPrivate(uid:string){if(!sb)return;const [o,a,w]=await Promise.all([sb.from("orders").select("*").eq("user_id",uid).order("created_at",{ascending:false}),sb.from("addresses").select("*").eq("user_id",uid).order("is_default",{ascending:false}),sb.from("wishlists").select("product_id").eq("user_id",uid)]);if(!o.error)setOrders(o.data||[]);if(!a.error)setAddresses(a.data||[]);if(!w.error)setWishlist((w.data||[]).map((x:any)=>x.product_id));}
- const cats=useMemo(()=>["All",...Array.from(new Set(products.map(p=>p.category).filter(Boolean) as string[]))],[products]);
- const list=products.filter(p=>p.is_active!==false&&(cat==="All"||p.category===cat)&&p.name.toLowerCase().includes(q.toLowerCase()));
- const items=Object.entries(cart).map(([id,qty])=>({p:products.find(p=>p.id===id)!,qty})).filter(x=>x.p);
- const total=items.reduce((s,x)=>s+x.p.price*x.qty,0),count=Object.values(cart).reduce((a,b)=>a+b,0);
- function add(p:Product){setCart(c=>({...c,[p.id]:Math.min((c[p.id]||0)+1,p.stock)}));setMsg(p.name+" added to cart.");}
- function change(id:string,n:number){setCart(c=>{const x={...c};if(n<=0)delete x[id];else x[id]=n;return x})}
- async function auth(mode:"login"|"signup"){if(!sb)return;setBusy(true);setMsg("");const r=mode==="login"?await sb.auth.signInWithPassword({email,password}):await sb.auth.signUp({email,password});setBusy(false);if(r.error)setMsg(r.error.message);else{setUser(r.data.user);if(r.data.user){await loadPrivate(r.data.user.id);setIsAdmin((await getMyRole())==="admin");}setMsg(mode==="signup"?"Account created. Check your email if confirmation is enabled.":"Signed in.");}}
- async function checkout(){if(!sb||!user){setView("account");setMsg("Please sign in before checkout.");return}if(!addresses.length){setView("addresses");setMsg("Add a delivery address first.");return}setBusy(true);const selected=addresses.find(a=>a.is_default)||addresses[0];const rows=items.map(x=>({product_id:x.p.id,quantity:x.qty}));const {error}=await sb.rpc("place_order",{p_items:rows,p_delivery_address:selected,p_payment_method:"cod"});setBusy(false);if(error)setMsg(error.message);else{setCart({});await loadPrivate(user.id);setView("orders");setMsg("Order placed successfully.");}}
- async function saveAddress(){if(!sb||!user||!address.full_address){setMsg("Full address is required.");return}setBusy(true);const r=await sb.from("addresses").insert({...address,user_id:user.id,is_default:addresses.length===0});setBusy(false);if(r.error)setMsg(r.error.message);else{setAddress({label:"Home",full_address:"",city:"",state:"",pincode:""});await loadPrivate(user.id);setMsg("Address saved.");}}
- async function toggleWish(id:string){if(!sb||!user){setView("account");setMsg("Please sign in to use wishlist.");return}if(wishlist.includes(id)){await sb.from("wishlists").delete().eq("user_id",user.id).eq("product_id",id);setWishlist(x=>x.filter(v=>v!==id));}else{const r=await sb.from("wishlists").insert({user_id:user.id,product_id:id});if(!r.error)setWishlist(x=>[...x,id]);}}
- function privateGate(next:any){if(!user){setView("account");setMsg("Please sign in first.");return}setView(next);setMsg("");}
- return <main>
- <header><div className="brand" onClick={()=>setView("shop")}>Shree<span>Kart</span></div><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search products, brands and more"/><button className="navbtn" onClick={()=>privateGate("orders")}>📦 Orders</button><button className="navbtn" onClick={()=>privateGate("wishlist")}>♡ {wishlist.length}</button><button className="navbtn" onClick={()=>setView("account")}>👤 {user?"Account":"Login"}</button>{isAdmin&&<button className="navbtn" onClick={()=>setView("admin")}>⚙️ Admin</button>}<button className="navbtn" onClick={()=>setView("cart")}>🛒 {count}</button></header>
- {view==="shop"&&<><section className="hero"><div><p className="eyebrow">SHREEKART</p><h1>Shop More, Live Better.</h1><p>Fresh catalog, secure accounts, orders and COD checkout.</p></div><div className="heroIcon">🛍️</div></section><section className="cats">{cats.map(c=><button className={cat===c?"selected":""} onClick={()=>setCat(c)} key={c}>{c}</button>)}</section>{msg&&<div className="toast">{msg}</div>}{loading?<div className="state">Loading products…</div>:error?<div className="state error">{error}</div>:<section className="grid">{list.map(p=><article className="card" key={p.id}><div className="photo">{p.image_url?<img src={p.image_url} alt={p.name}/>:<span>🛍️</span>}<button className="heart" onClick={()=>toggleWish(p.id)}>{wishlist.includes(p.id)?"♥":"♡"}</button></div><div className="body"><small>{p.category||"Product"} {p.rating_avg?"· ⭐ "+Number(p.rating_avg).toFixed(1):""}</small><h3>{p.name}</h3><strong>₹{Number(p.price).toLocaleString("en-IN")}</strong><p>{p.stock>0?p.stock+" in stock":"Out of stock"}</p><button disabled={!p.stock} onClick={()=>add(p)}>Add to Cart</button></div></article>)}</section>}</>}
- {view==="admin"&&isAdmin?<Admin products={products} onDone={()=>{setView("admin");sb?.from("products").select("*,categories(name)").order("created_at",{ascending:false}).then(({data})=>setProducts((data||[]).map((p:any)=>({...p,category:p.categories?.name||"General"}))));}}/>:view==="cart"&&<section className="panel"><h2>Your Cart</h2>{!items.length?<p>Your cart is empty.</p>:<>{items.map(x=><div className="row" key={x.p.id}><b>{x.p.name}</b><span>₹{x.p.price.toLocaleString("en-IN")}</span><div><button onClick={()=>change(x.p.id,x.qty-1)}>−</button> {x.qty} <button onClick={()=>change(x.p.id,Math.min(x.qty+1,x.p.stock))}>+</button></div></div>)}<h2>Total: ₹{total.toLocaleString("en-IN")}</h2><button className="primary" disabled={busy} onClick={checkout}>{busy?"Placing order…":"Place COD Order"}</button></>}</section>}
- {view==="orders"&&<section className="panel"><h2>My Orders</h2>{!orders.length?<p>No orders yet.</p>:orders.map(o=><div className="order" key={o.id}><div><b>Order #{o.id.slice(0,8)}</b><span>{new Date(o.created_at).toLocaleDateString("en-IN")}</span></div><strong>₹{Number(o.total).toLocaleString("en-IN")}</strong><p>Status: <b>{o.status}</b> · Payment: {o.payment_method.toUpperCase()}</p></div>)}</section>}
- {view==="addresses"&&<section className="panel"><h2>Delivery Addresses</h2>{addresses.map(a=><div className="order" key={a.id}><b>{a.label} {a.is_default?"· Default":""}</b><p>{a.full_address}, {a.city}, {a.state} - {a.pincode}</p></div>)}<h3>Add address</h3><input className="field" placeholder="Label e.g. Home" value={address.label} onChange={e=>setAddress({...address,label:e.target.value})}/><input className="field" placeholder="Full address" value={address.full_address} onChange={e=>setAddress({...address,full_address:e.target.value})}/><div className="two"><input className="field" placeholder="City" value={address.city} onChange={e=>setAddress({...address,city:e.target.value})}/><input className="field" placeholder="State" value={address.state} onChange={e=>setAddress({...address,state:e.target.value})}/></div><input className="field" placeholder="PIN code" value={address.pincode} onChange={e=>setAddress({...address,pincode:e.target.value})}/><button className="primary" disabled={busy} onClick={saveAddress}>Save Address</button></section>}
- {view==="wishlist"&&<section className="panel"><h2>Wishlist</h2>{!wishlist.length?<p>No saved products yet.</p>:<div className="wishlist">{wishlist.map(id=>{const p=products.find(x=>x.id===id);return p?<div className="wish" key={id}><b>{p.name}</b><span>₹{Number(p.price).toLocaleString("en-IN")}</span><button onClick={()=>add(p)}>Add to Cart</button><button onClick={()=>toggleWish(id)}>Remove</button></div>:null})}</div>}</section>}
- {view==="account"&&<section className="panel">{user?<><h2>Account</h2><p>Signed in as <b>{user.email}</b></p><div className="actions"><button onClick={()=>setView("orders")}>📦 My Orders</button><button onClick={()=>setView("addresses")}>📍 Addresses</button><button onClick={()=>setView("wishlist")}>♡ Wishlist</button>{isAdmin&&<button className="primary" onClick={()=>setView("admin")}>⚙️ Open Admin Panel</button>}</div><button className="primary" onClick={async()=>{await sb?.auth.signOut();setUser(null);setOrders([]);setAddresses([]);setWishlist([]);setIsAdmin(false);setView("shop");setMsg("Signed out.");}}>Sign out</button></>:<><h2>Login / Create Account</h2><input className="field" type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)}/><input className="field" type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)}/><div className="actions"><button className="primary" disabled={busy} onClick={()=>auth("login")}>Login</button><button onClick={()=>auth("signup")}>Create account</button></div></>}{msg&&<p className="notice">{msg}</p>}</section>}
- <footer><b>Cart total: ₹{total.toLocaleString("en-IN")}</b><span>ShreeKart · Supabase powered</span></footer>
- </main>
+async function isAdmin(){
+  if(!sb)return false;
+  const {data,error}=await sb.rpc("is_admin");
+  return !error&&data===true;
 }
 
-function Admin({products,onDone}:{products:Product[];onDone:()=>void}){
- const [tab,setTab]=useState<"products"|"orders"|"users">("products"),[form,setForm]=useState({name:"",category:"",price:"",stock:"",image_url:"",description:""}),[orders,setOrders]=useState<any[]>([]),[users,setUsers]=useState<any[]>([]),[busy,setBusy]=useState(false),[note,setNote]=useState("");
- useEffect(()=>{if(!sb)return; (async()=>{const [o,u]=await Promise.all([sb.from("orders").select("*").order("created_at",{ascending:false}),sb.from("profiles").select("*").order("created_at",{ascending:false})]);if(!o.error)setOrders(o.data||[]);if(!u.error)setUsers(u.data||[]);})();},[]);
- async function addProduct(){if(!sb||!form.name||!form.price)return;setBusy(true);let category_id:any=null;if(form.category){const found=await sb.from("categories").select("id").eq("name",form.category).maybeSingle();if(found.data)category_id=found.data.id;else{const created=await sb.from("categories").insert({name:form.category}).select("id").single();if(created.error){setBusy(false);setNote(created.error.message);return}category_id=created.data.id;}}const r=await sb.from("products").insert({name:form.name,category_id,price:Number(form.price),stock:Number(form.stock||0),image_url:form.image_url||null,description:form.description||null,is_active:true});setBusy(false);setNote(r.error?r.error.message:"Product added.");if(!r.error){setForm({name:"",category:"",price:"",stock:"",image_url:"",description:""});onDone();}}
- async function updateStock(id:string,stock:number){if(!sb)return;const r=await sb.from("products").update({stock}).eq("id",id);setNote(r.error?r.error.message:"Stock updated.");if(!r.error)onDone();}
- async function toggleProduct(p:Product){if(!sb)return;const r=await sb.from("products").update({is_active:!(p as any).is_active}).eq("id",p.id);setNote(r.error?r.error.message:"Product updated.");if(!r.error)onDone();}
- async function updateOrder(id:string,status:string){if(!sb)return;const r=await sb.from("orders").update({status}).eq("id",id);setNote(r.error?r.error.message:"Order status updated.");if(!r.error)setOrders(x=>x.map(o=>o.id===id?{...o,status}:o));}
- return <section className="admin"><div className="adminHead"><div><p className="eyebrow">SHREEKART ADMIN</p><h2>Store Management</h2></div><button onClick={onDone}>← Store</button></div><div className="adminTabs"><button className={tab==="products"?"selected":""} onClick={()=>setTab("products")}>Products</button><button className={tab==="orders"?"selected":""} onClick={()=>setTab("orders")}>Orders ({orders.length})</button><button className={tab==="users"?"selected":""} onClick={()=>setTab("users")}>Customers ({users.length})</button></div>{note&&<p className="notice">{note}</p>}
- {tab==="products"&&<><div className="adminGrid"><div className="panel"><h3>Add Product</h3><input className="field" placeholder="Product name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/><input className="field" placeholder="Category" value={form.category} onChange={e=>setForm({...form,category:e.target.value})}/><input className="field" type="number" placeholder="Price" value={form.price} onChange={e=>setForm({...form,price:e.target.value})}/><input className="field" type="number" placeholder="Stock" value={form.stock} onChange={e=>setForm({...form,stock:e.target.value})}/><input className="field" placeholder="Image URL" value={form.image_url} onChange={e=>setForm({...form,image_url:e.target.value})}/><textarea className="field" placeholder="Description" value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/><button className="primary" disabled={busy} onClick={addProduct}>Add Product</button></div><div className="panel"><h3>Inventory</h3>{products.map(p=><div className="adminRow" key={p.id}><div><b>{p.name}</b><small>{p.category} · ₹{Number(p.price).toLocaleString("en-IN")} · {(p as any).is_active===false?"Hidden":"Live"}</small></div><input type="number" min="0" value={p.stock} onChange={e=>updateStock(p.id,Number(e.target.value))}/><button onClick={()=>toggleProduct(p)}>{(p as any).is_active===false?"Enable":"Hide"}</button></div>)}</div></div></>}
- {tab==="orders"&&<div className="panel"><h3>All Orders</h3>{!orders.length?<p>No orders.</p>:orders.map(o=><div className="adminRow" key={o.id}><div><b>#{o.id.slice(0,8)}</b><small>{new Date(o.created_at).toLocaleString("en-IN")} · ₹{Number(o.total).toLocaleString("en-IN")}</small></div><select value={o.status} onChange={e=>updateOrder(o.id,e.target.value)}><option>placed</option><option>confirmed</option><option>packed</option><option>shipped</option><option>delivered</option><option>cancelled</option></select></div>)}</div>}
- {tab==="users"&&<div className="panel"><h3>Customers</h3>{users.map(u=><div className="adminRow" key={u.id}><div><b>{u.full_name||"Customer"}</b><small>{u.id}</small></div><strong>{u.role}</strong></div>)}</div>}
- </section>
+export default function Home(){
+  const [products,setProducts]=useState<Product[]>([]);
+  const [view,setView]=useState<"shop"|"account"|"cart"|"admin">("shop");
+  const [user,setUser]=useState<any>(null),[admin,setAdmin]=useState(false);
+  const [msg,setMsg]=useState(""),[busy,setBusy]=useState(false);
+  const [email,setEmail]=useState(""),[password,setPassword]=useState("");
+  const [phone,setPhone]=useState(""),[otp,setOtp]=useState(""),[otpSent,setOtpSent]=useState(false);
+  const [loginMode,setLoginMode]=useState<"phone"|"email">("phone");
+  const [cart,setCart]=useState<Record<string,number>>({});
+  const [editingId,setEditingId]=useState<string|null>(null);
+  const [form,setForm]=useState({name:"",category:"",price:"",stock:"",image_url:"",description:""});
+
+  async function refresh(){
+    if(!sb)return;
+    const {data,error}=await sb.from("products").select("*").order("created_at",{ascending:false});
+    if(error)setMsg(error.message); else setProducts((data||[]) as Product[]);
+  }
+
+  useEffect(()=>{
+    if(!sb){setMsg("Supabase environment variables are missing.");return;}
+    refresh();
+    sb.auth.getUser().then(async({data})=>{setUser(data.user);if(data.user)setAdmin(await isAdmin());});
+    const {data:listener}=sb.auth.onAuthStateChange(async(_event,session)=>{
+      const u=session?.user??null;setUser(u);setAdmin(u?await isAdmin():false);
+    });
+    return()=>listener.subscription.unsubscribe();
+  },[]);
+
+  async function emailAuth(mode:"login"|"signup"){
+    if(!sb)return;setBusy(true);setMsg("");
+    const r=mode==="login"?await sb.auth.signInWithPassword({email,password}):await sb.auth.signUp({email,password});
+    setBusy(false);
+    if(r.error)setMsg(r.error.message);
+    else{setUser(r.data.user);setAdmin(r.data.user?await isAdmin():false);setMsg(mode==="signup"?"Account created. Check email if confirmation is enabled.":"Signed in.");}
+  }
+
+  async function sendOtp(){
+    if(!sb)return;
+    const clean=phone.trim().replace(/\s+/g,"");
+    if(!clean||clean.length<10){setMsg("Enter a valid mobile number, e.g. +9198xxxxxxxx");return;}
+    const full=clean.startsWith("+")?clean:"+91"+clean;
+    setBusy(true);setMsg("");
+    const {error}=await sb.auth.signInWithOtp({phone:full});setBusy(false);
+    if(error)setMsg(error.message+" — Enable Phone provider and SMS in Supabase.");
+    else{setPhone(full);setOtpSent(true);setMsg("OTP sent! Check your SMS.");}
+  }
+
+  async function verifyOtp(){
+    if(!sb||!otp)return;setBusy(true);setMsg("");
+    const {data,error}=await sb.auth.verifyOtp({phone,token:otp,type:"sms"});setBusy(false);
+    if(error)setMsg(error.message);
+    else{setUser(data.user);setAdmin(data.user?await isAdmin():false);setOtpSent(false);setOtp("");setMsg("Logged in successfully with mobile!");}
+  }
+
+  async function saveProduct(){
+    if(!sb||!admin||!form.name||!form.price){setMsg("Product name and price are required.");return;}
+    setBusy(true);
+    const payload={name:form.name,category:form.category||"General",price:Number(form.price),stock:Number(form.stock||0),image_url:form.image_url||null,description:form.description||null,...(editingId?{}:{active:true})};
+    const r=editingId?await sb.from("products").update(payload).eq("id",editingId):await sb.from("products").insert(payload);
+    setBusy(false);
+    if(r.error)setMsg(r.error.message);else{setMsg(editingId?"Product updated successfully.":"Product added successfully.");resetForm();await refresh();}
+  }
+
+  function editProduct(p:Product){
+    setEditingId(p.id);setForm({name:p.name,category:p.category||"",price:String(p.price),stock:String(p.stock),image_url:p.image_url||"",description:p.description||""});setView("admin");setMsg("");
+  }
+  function resetForm(){setEditingId(null);setForm({name:"",category:"",price:"",stock:"",image_url:"",description:""});}
+
+  async function deleteProduct(id:string){
+    if(!sb||!admin||!confirm("Delete this product? This cannot be undone."))return;
+    setBusy(true);const r=await sb.from("products").delete().eq("id",id);setBusy(false);
+    if(r.error)setMsg(r.error.message);else{setMsg("Product deleted.");if(editingId===id)resetForm();await refresh();}
+  }
+
+  async function toggleProduct(p:Product){
+    if(!sb||!admin)return;
+    const r=await sb.from("products").update({active:p.active===false}).eq("id",p.id);
+    if(r.error)setMsg(r.error.message);else await refresh();
+  }
+
+  function addToCart(p:Product){
+    if(p.stock<1)return;
+    setCart(c=>({...c,[p.id]:Math.min((c[p.id]||0)+1,p.stock)}));setMsg(p.name+" added to cart.");
+  }
+
+  const items=Object.entries(cart).map(([id,qty])=>({p:products.find(x=>x.id===id),qty})).filter(x=>x.p) as {p:Product,qty:number}[];
+  const total=items.reduce((s,x)=>s+x.p.price*x.qty,0);
+
+  return <main>
+    <header>
+      <div className="brand" onClick={()=>setView("shop")}>Shree<span>Kart</span></div>
+      <button className="navbtn" onClick={()=>setView("shop")}>Shop</button>
+      <button className="navbtn" onClick={()=>setView("cart")}>🛒 Cart ({items.length})</button>
+      <button className="navbtn" onClick={()=>setView("account")}>👤 {user?"Account":"Login"}</button>
+      {admin&&<button className="navbtn" onClick={()=>setView("admin")}>⚙️ Admin</button>}
+    </header>
+
+    {msg&&<div className="toast">{msg}</div>}
+
+    {view==="shop"&&<section className="panel">
+      <h1>Shop More, Live Better.</h1><p>ShreeKart product catalog.</p>
+      <div className="grid">{products.filter(p=>p.active!==false).map(p=><article className="card" key={p.id}>
+        <div className="photo">{p.image_url?<img src={p.image_url} alt={p.name}/>:<span>🛍️</span>}</div>
+        <div className="body"><small>{p.category||"General"}</small><h3>{p.name}</h3><strong>₹{Number(p.price).toLocaleString("en-IN")}</strong><p>{p.stock>0?p.stock+" in stock":"Out of stock"}</p><button disabled={!p.stock} onClick={()=>addToCart(p)}>Add to Cart</button></div>
+      </article>)}</div>
+    </section>}
+
+    {view==="cart"&&<section className="panel"><h2>Your Cart</h2>{!items.length?<p>Your cart is empty.</p>:<>{items.map(x=><div className="row" key={x.p.id}><b>{x.p.name}</b><span>₹{x.p.price}</span><span>Qty: {x.qty}</span></div>)}<h2>Total: ₹{total.toLocaleString("en-IN")}</h2></>}</section>}
+
+    {view==="account"&&<section className="panel">{user?<><h2>My Account</h2><p>Signed in as <b>{user.phone||user.email}</b></p>{admin&&<button className="primary" onClick={()=>setView("admin")}>⚙️ Open Admin Panel</button>}<button onClick={async()=>{await sb?.auth.signOut();setUser(null);setAdmin(false);setView("shop");}}>Sign out</button></>:<>
+      <h2>Login / Create Account</h2>
+      <div className="actions"><button className={loginMode==="phone"?"primary":""} onClick={()=>{setLoginMode("phone");setMsg("");}}>📱 Mobile OTP</button><button className={loginMode==="email"?"primary":""} onClick={()=>{setLoginMode("email");setMsg("");}}>✉️ Email</button></div>
+      {loginMode==="phone"?(!otpSent?<><input className="field" type="tel" placeholder="Mobile number e.g. +9198xxxxxxxx" value={phone} onChange={e=>setPhone(e.target.value)}/><button className="primary" disabled={busy} onClick={sendOtp}>Send OTP</button></>:<><p className="notice">OTP sent to {phone}</p><input className="field" inputMode="numeric" placeholder="Enter 6-digit OTP" value={otp} onChange={e=>setOtp(e.target.value)} maxLength={8}/><div className="actions"><button className="primary" disabled={busy} onClick={verifyOtp}>Verify & Login</button><button onClick={()=>{setOtpSent(false);setOtp("");}}>Change Number</button></div></>):<><input className="field" type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)}/><input className="field" type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)}/><div className="actions"><button className="primary" disabled={busy} onClick={()=>emailAuth("login")}>Login</button><button onClick={()=>emailAuth("signup")}>Create account</button></div></>}
+    </>}</section>}
+
+    {view==="admin"&&admin&&<section className="admin">
+      <div className="adminHead"><div><p className="eyebrow">SHREEKART ADMIN</p><h2>Store Management</h2></div><button onClick={()=>setView("shop")}>← Store</button></div>
+      <div className="adminGrid">
+        <div className="panel"><h3>{editingId?"Edit Product":"Add Product"}</h3>
+          <input className="field" placeholder="Product name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
+          <input className="field" placeholder="Category" value={form.category} onChange={e=>setForm({...form,category:e.target.value})}/>
+          <input className="field" type="number" placeholder="Price" value={form.price} onChange={e=>setForm({...form,price:e.target.value})}/>
+          <input className="field" type="number" placeholder="Stock" value={form.stock} onChange={e=>setForm({...form,stock:e.target.value})}/>
+          <input className="field" placeholder="Image URL" value={form.image_url} onChange={e=>setForm({...form,image_url:e.target.value})}/>
+          <textarea className="field" placeholder="Description" value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/>
+          <div className="actions"><button className="primary" disabled={busy} onClick={saveProduct}>{editingId?"Update Product":"Add Product"}</button>{editingId&&<button onClick={resetForm}>Cancel Edit</button>}</div>
+        </div>
+        <div className="panel"><h3>Inventory</h3>{products.map(p=><div className="adminRow" key={p.id}>
+          <div><b>{p.name}</b><small>{p.category||"General"} · ₹{Number(p.price).toLocaleString("en-IN")} · {p.active===false?"Hidden":"Live"}</small></div>
+          <div className="actions"><button onClick={()=>editProduct(p)}>Edit</button><button onClick={()=>toggleProduct(p)}>{p.active===false?"Enable":"Hide"}</button><button onClick={()=>deleteProduct(p.id)}>Delete</button></div>
+        </div>)}</div>
+      </div>
+    </section>}
+
+    <footer><b>Cart total: ₹{total.toLocaleString("en-IN")}</b><span>ShreeKart · Supabase powered</span></footer>
+  </main>;
 }
