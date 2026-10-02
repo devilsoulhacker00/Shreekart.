@@ -36,17 +36,30 @@ jobs:
         run: |
           yes | sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Prepare web app
+      - name: Prepare Next.js environment
         run: |
-          mkdir -p www
-          cp index.html www/
-          cp app.js www/
-          cp style.css www/
-          cp config.js www/
-          cp manifest.json www/
+          node <<'NODE'
+          const fs = require('fs');
+          const config = fs.readFileSync('config.js', 'utf8');
+          const url = config.match(/SUPABASE_URL='([^']+)'/)?.[1];
+          const key = config.match(/SUPABASE_ANON_KEY='([^']+)'/)?.[1];
+          if (!url || !key) throw new Error('Supabase config missing');
+          fs.writeFileSync('.env.production.local',
+            'NEXT_PUBLIC_SUPABASE_URL=' + url + '\n' +
+            'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=' + key + '\n'
+          );
+          NODE
 
       - name: Install dependencies
         run: npm install
+
+      - name: Build Next.js web app
+        run: npm run build
+
+      - name: Prepare Capacitor web directory
+        run: |
+          rm -rf www
+          cp -R out www
 
       - name: Add Android platform
         run: npx cap add android
